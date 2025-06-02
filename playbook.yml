@@ -1,0 +1,112 @@
+---
+- name: Deploy Apache Web Server
+  hosts: all
+  become: yes
+  vars_files: vars.yml # Variables used for flexibility (e.g., web_directory, server_name)
+
+  tasks:
+    # TASK 1: Install Apache HTTPd
+    - name: Install Apache
+      ansible.builtin.dnf:
+        name: httpd
+        state: present
+      tags: install
+      # NOTE: Uses the 'dnf' module for RedHat/CentOS compatibility.
+
+    
+    # TASK 3: Create website directory (e.g., /var/www/nominet_test)
+    - name: Create document root
+      ansible.builtin.file:
+        path: "{{ web_directory }}" # Variable defined in vars.yml
+        state: directory
+        mode: '0755'
+        owner: apache
+        group: apache
+      tags: directory
+      # NOTE: Directory ownership/permissions follow security best practices.
+
+    # TASK 4: Copy website files to target directory
+    - name: Copy website files
+      ansible.builtin.copy:
+        src: files/
+        dest: "{{ web_directory }}"
+        mode: '0644'
+        owner: apache
+        group: apache
+      register: content_changed
+      tags: content
+      # NOTE: Uses Ansible's 'copy' module for idempotent file transfers
+      
+    # TASK 5: Configure Apache to serve the website
+    - name: Create basic virtual host config
+      ansible.builtin.copy:
+        dest: /etc/httpd/conf.d/nominet.conf
+        content: |
+          <VirtualHost *:80>
+              ServerName {{ server_name }}
+              DocumentRoot {{ web_directory }}
+              
+              <Directory {{ web_directory }}>
+                  Options Indexes FollowSymLinks
+                  AllowOverride All
+                  Require all granted
+              </Directory>
+              
+              ErrorLog /var/log/httpd/example_error.log
+              CustomLog /var/log/httpd/examplet_access.log combined
+          </VirtualHost>
+        owner: root
+        group: root
+        mode: '0644'
+      register: config_changed
+      tags: config
+      # NOTE: Configures Apache to serve content from the custom directory
+      
+    # SELinux handling
+    - name: Check if SELinux is enabled
+      ansible.builtin.stat:
+        path: /sys/fs/selinux/enforce
+      register: selinux_enabled
+      tags: selinux
+
+    - name: Apply SELinux context to web directory (if SELinux is active)
+      ansible.builtin.file:
+        path: "{{ web_directory }}"
+        recurse: yes
+        setype: httpd_sys_content_t
+      when: selinux_enabled.stat.exists
+      tags: selinux
+      
+    # TASK 6: Ensure Apache restarts after configuration changes
+    - name: Verify Apache configuration
+      ansible.builtin.command: httpd -t # httpd -t is used for syntax checking.
+      register: httpd_config_test
+      changed_when: false
+      tags: config
+    # NOTE: Validates config syntax before attempting a restart 
+      
+    - name: Report Apache configuration status
+      ansible.builtin.debug:
+        msg: "Apache configuration is valid"
+      when: httpd_config_test.rc == 0
+      tags: config
+      
+    # Firewall configuration
+    - name: Open HTTP port
+      ansible.posix.firewalld:
+        port: "80/tcp"
+        permanent: yes
+        immediate: yes
+        state: enabled
+      tags: firewall
+      # NOTE: Ensures the firewall allows HTTP traffic.
+      
+      
+    # TASK 2: Start and enable Apache service
+    - name: Enable and start Apache
+      ansible.builtin.service:
+        name: httpd
+        state: started
+        enabled: yes
+      tags: service
+     # NOTE: Service is both started and enabled on boot.
