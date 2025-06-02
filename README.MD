@@ -4,7 +4,7 @@ Ansible playbook to automate Apache HTTPd deployment on Red Hat/CentOS.
 ## Usage  
 1. Clone the repo:  
    ```bash
-   git clone https://github.com/your-username/nominet-ansible-deployment.git
+   git clone https://github.com/therealdillz/ansible-apache-hardening
 Update inventory.ini and vars.yml.
 
 Run:
